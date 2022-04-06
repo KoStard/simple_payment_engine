@@ -1,11 +1,13 @@
+use std::env::args;
+
 use customer_account_provider::InMemoryCustomerAccountProvider;
-use log::LevelFilter;
+use log::{info, LevelFilter};
 
 use log::{Level, Metadata, Record};
 use transaction_history_provider::InMemoryTransactionHistoryProvider;
 use transaction_requests_reader::TransactionRequestsReader;
 
-use crate::transactions_manager::{TransactionsManager, DefaultTransactionsManager};
+use crate::transactions_manager::{DefaultTransactionsManager, TransactionsManager};
 
 mod common_types;
 mod customer_account_provider;
@@ -37,8 +39,12 @@ fn main() {
         .map(|()| log::set_max_level(LevelFilter::Info))
         .unwrap();
 
-    let path = "/Users/kostard/Documents/Personal/projects/simple_payment_engine/test.csv";
-    let reader = TransactionRequestsReader::new(path);
+    let path = match args().nth(1) {
+        Some(e) => e,
+        None => panic!("Path not passed for the input file!")
+    };
+
+    let reader = TransactionRequestsReader::new(&path);
     let iterator = reader.read();
     let mut transactions_manager = DefaultTransactionsManager::new(
         InMemoryTransactionHistoryProvider::new(),
@@ -46,34 +52,14 @@ fn main() {
     );
     iterator
         .filter(|request| DefaultTransactionsManager::structure_validation(request))
+        // TODO Map -> Allow only 4 digits after the decimal
         .for_each(|request| {
-            transactions_manager
+            if !transactions_manager
                 .handle_transaction(request)
                 .expect("Something went wrong while handling the transaction")
+            {
+                info!("Request skipped");
+            }
         });
-    println!(
-        "Available: {}",
-        transactions_manager
-            .customer_account_provider
-            .get_available(1)
-            .unwrap()
-            .unwrap()
-    );
-    println!(
-        "Held: {}",
-        transactions_manager
-            .customer_account_provider
-            .get_held_amount(1)
-            .unwrap()
-            .unwrap()
-    );
-    println!(
-        "Locked: {}",
-        transactions_manager
-            .customer_account_provider
-            .get_locked_status(1)
-            .unwrap()
-            .unwrap()
-    );
-    println!("{:?}", transactions_manager.transaction_history_provider.read_transaction_state(1));
+    transactions_manager.print_report().expect("Printing the report failed.");
 }

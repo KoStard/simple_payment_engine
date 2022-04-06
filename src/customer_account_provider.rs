@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 
 use crate::common_types::CustomerId;
 
@@ -12,6 +13,7 @@ pub trait CustomerAccountProvider {
     fn set_available(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), ()>;
     fn set_held_amount(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), ()>;
     fn set_locked_status(&mut self, customer_id: CustomerId, locked: bool) -> Result<(), ()>;
+    fn list_accounts(&self) -> Result<Vec<CustomerAccountReport>, ()>;
 }
 
 // Not exposed externally
@@ -23,8 +25,21 @@ struct CustomerAccount {
 
 impl CustomerAccount {
     fn new(available: Decimal, held: Decimal, locked: bool) -> Self {
-        CustomerAccount { available, held, locked }
+        CustomerAccount {
+            available,
+            held,
+            locked,
+        }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CustomerAccountReport {
+    client: CustomerId,
+    available: Decimal,
+    held: Decimal,
+    total: Decimal,
+    locked: bool,
 }
 
 pub struct InMemoryCustomerAccountProvider {
@@ -55,7 +70,10 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
         if let Some(customer_account) = self.storage.get_mut(&customer_id) {
             customer_account.available = balance;
         } else {
-            self.storage.insert(customer_id, CustomerAccount::new(balance, Decimal::ZERO, false));
+            self.storage.insert(
+                customer_id,
+                CustomerAccount::new(balance, Decimal::ZERO, false),
+            );
         }
         Ok(())
     }
@@ -78,5 +96,19 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
             panic!("Locking a non-existing account");
         }
         Ok(())
+    }
+
+    fn list_accounts(&self) -> Result<Vec<CustomerAccountReport>, ()> {
+        return Ok(self
+            .storage
+            .iter()
+            .map(|(client, account)| CustomerAccountReport {
+                client: *client,
+                available: account.available,
+                held: account.held,
+                locked: account.locked,
+                total: account.available + account.held,
+            })
+            .collect());
     }
 }
