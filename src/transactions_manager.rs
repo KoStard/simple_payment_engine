@@ -6,21 +6,25 @@ use crate::{
     transaction_request::{TransactionRequest, TransactionState, TransactionType},
 };
 
-use super::transaction_handler::TransactionHandler;
 use log::info;
 
-pub struct TransactionsManager {
+pub trait TransactionsManager {
+    fn structure_validation(transaction_request: &TransactionRequest) -> bool;
+    fn handle_transaction(&mut self, transaction_request: TransactionRequest) -> Result<(), ()>;
+}
+
+pub struct DefaultTransactionsManager {
     // TODO Understand why Box
     // TODO remove the pubs
     pub transaction_history_provider: Box<dyn TransactionHistoryProvider>,
     pub customer_account_provider: Box<dyn CustomerAccountProvider>,
 }
-impl TransactionsManager {
+impl DefaultTransactionsManager {
     pub fn new(
         transaction_history_provider: impl TransactionHistoryProvider + 'static,
         customer_account_provider: impl CustomerAccountProvider + 'static,
     ) -> Self {
-        TransactionsManager {
+        DefaultTransactionsManager {
             transaction_history_provider: Box::new(transaction_history_provider),
             customer_account_provider: Box::new(customer_account_provider),
         }
@@ -37,7 +41,7 @@ fn has_no_amount(transaction_request: &TransactionRequest) -> bool {
     transaction_request.amount.is_none()
 }
 
-impl TransactionHandler for TransactionsManager {
+impl TransactionsManager for DefaultTransactionsManager {
     fn structure_validation(transaction_request: &TransactionRequest) -> bool {
         match &transaction_request.transaction_type {
             TransactionType::Deposit => has_positive_amount(transaction_request),

@@ -2,18 +2,17 @@ use customer_account_provider::InMemoryCustomerAccountProvider;
 use log::LevelFilter;
 
 use log::{Level, Metadata, Record};
-use transaction_handlers::{
-    transaction_handler::TransactionHandler, transactions_manager::TransactionsManager,
-};
 use transaction_history_provider::InMemoryTransactionHistoryProvider;
 use transaction_requests_reader::TransactionRequestsReader;
 
+use crate::transactions_manager::{TransactionsManager, DefaultTransactionsManager};
+
 mod common_types;
 mod customer_account_provider;
-mod transaction_handlers;
 mod transaction_history_provider;
 mod transaction_request;
 mod transaction_requests_reader;
+mod transactions_manager;
 
 struct SimpleLogger;
 
@@ -41,12 +40,12 @@ fn main() {
     let path = "/Users/kostard/Documents/Personal/projects/simple_payment_engine/test.csv";
     let reader = TransactionRequestsReader::new(path);
     let iterator = reader.read();
-    let mut transactions_manager = TransactionsManager::new(
+    let mut transactions_manager = DefaultTransactionsManager::new(
         InMemoryTransactionHistoryProvider::new(),
         InMemoryCustomerAccountProvider::new(),
     );
     iterator
-        .filter(|request| TransactionsManager::structure_validation(request))
+        .filter(|request| DefaultTransactionsManager::structure_validation(request))
         .for_each(|request| {
             transactions_manager
                 .handle_transaction(request)
