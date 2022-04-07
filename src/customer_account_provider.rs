@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
+use mockall::predicate::*;
+use mockall::*;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use mockall::*;
-use mockall::predicate::*;
 
 use crate::common_types::CustomerId;
 
-// TODO if we lock this instance, the performance will not be good. Instead we can lock per customer.
 #[automock]
 pub trait CustomerAccountProvider {
     fn get_available(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, ()>;
@@ -19,7 +18,7 @@ pub trait CustomerAccountProvider {
     fn list_accounts(&self) -> Result<Vec<CustomerAccountReport>, ()>;
 }
 
-// Not exposed externally
+#[derive(Default)]
 struct CustomerAccount {
     available: Decimal,
     held: Decimal,
@@ -36,7 +35,7 @@ impl CustomerAccount {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomerAccountReport {
     pub client: CustomerId,
     pub available: Decimal,
@@ -85,7 +84,7 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
         if let Some(customer_account) = self.storage.get_mut(&customer_id) {
             customer_account.held = balance;
         } else {
-            // TODO Think about this!
+            // Something went wrong... If the original transaction existed, then the account would exist as well
             panic!("Putting amount on hold on a non-existing account");
         }
         Ok(())
@@ -95,7 +94,7 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
         if let Some(customer_account) = self.storage.get_mut(&customer_id) {
             customer_account.locked = locked;
         } else {
-            // TODO Think about this!
+            // Something went wrong... If the original transaction existed, then the account would exist as well
             panic!("Locking a non-existing account");
         }
         Ok(())
@@ -113,5 +112,203 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
                 total: account.available + account.held,
             })
             .collect());
+    }
+}
+
+#[cfg(test)]
+mod in_memory_customer_account_provider_tests {
+    use super::*;
+
+    #[test]
+    fn get_available_works_as_expected_with_existing_account() {
+        let customer_id = 1;
+        let available = Decimal::new(10, 0);
+        let mut storage = HashMap::new();
+        storage.insert(
+            customer_id,
+            CustomerAccount {
+                available,
+                ..Default::default()
+            },
+        );
+        let mut customer_account_provider = InMemoryCustomerAccountProvider { storage };
+        assert_eq!(
+            customer_account_provider.get_available(customer_id),
+            Ok(Some(available))
+        );
+    }
+
+    #[test]
+    fn get_available_works_as_expected_with_missing_account() {
+        let customer_id = 1;
+        let storage = HashMap::new();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider { storage };
+        assert_eq!(
+            customer_account_provider.get_available(customer_id),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn get_held_amount_works_as_expected_with_existing_account() {
+        let customer_id = 1;
+        let held = Decimal::new(10, 0);
+        let mut storage = HashMap::new();
+        storage.insert(
+            customer_id,
+            CustomerAccount {
+                held,
+                ..Default::default()
+            },
+        );
+        let mut customer_account_provider = InMemoryCustomerAccountProvider { storage };
+        assert_eq!(
+            customer_account_provider.get_held_amount(customer_id),
+            Ok(Some(held))
+        );
+    }
+
+    #[test]
+    fn get_held_amount_works_as_expected_with_missing_account() {
+        let customer_id = 1;
+        let storage = HashMap::new();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider { storage };
+        assert_eq!(
+            customer_account_provider.get_held_amount(customer_id),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn get_locked_status_works_as_expected_with_existing_account() {
+        let customer_id = 1;
+        let locked = false;
+        let mut storage = HashMap::new();
+        storage.insert(
+            customer_id,
+            CustomerAccount {
+                locked,
+                ..Default::default()
+            },
+        );
+        let mut customer_account_provider = InMemoryCustomerAccountProvider { storage };
+        assert_eq!(
+            customer_account_provider.get_locked_status(customer_id),
+            Ok(Some(locked))
+        );
+    }
+
+    #[test]
+    fn get_locked_status_works_as_expected_with_missing_account() {
+        let customer_id = 1;
+        let storage = HashMap::new();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider { storage };
+        assert_eq!(
+            customer_account_provider.get_locked_status(customer_id),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn set_available_works_as_expected() {
+        let customer_id = 1;
+        let balance = Decimal::new(10, 0);
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        assert!(customer_account_provider
+            .set_available(customer_id, balance)
+            .is_ok());
+        assert_eq!(
+            customer_account_provider.get_available(customer_id),
+            Ok(Some(balance))
+        );
+    }
+
+    #[test]
+    fn set_held_amount_works_as_expected() {
+        let customer_id = 1;
+        let balance = Decimal::new(10, 0);
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(customer_id, Decimal::new(10, 0))
+            .expect("Couldn't create the account");
+        assert!(customer_account_provider
+            .set_held_amount(customer_id, balance)
+            .is_ok());
+        assert_eq!(
+            customer_account_provider.get_held_amount(customer_id),
+            Ok(Some(balance))
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_held_amount_panics_when_no_account_found() {
+        let customer_id = 1;
+        let balance = Decimal::new(10, 0);
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        let _ = customer_account_provider.set_held_amount(customer_id, balance);
+    }
+
+    #[test]
+    fn set_locked_status_works_as_expected() {
+        let customer_id = 1;
+        let locked = true;
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(customer_id, Decimal::new(10, 0))
+            .expect("Couldn't create the account");
+        assert!(customer_account_provider
+            .set_locked_status(customer_id, locked)
+            .is_ok());
+        assert_eq!(
+            customer_account_provider.get_locked_status(customer_id),
+            Ok(Some(locked))
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_locked_status_panics_when_no_account_found() {
+        let customer_id = 1;
+        let locked = true;
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        let _ = customer_account_provider.set_locked_status(customer_id, locked);
+    }
+
+    #[test]
+    fn list_accounts_works_as_expected() {
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::new(10, 0))
+            .unwrap();
+        customer_account_provider
+            .set_available(2, Decimal::new(11, 0))
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(2, Decimal::new(12, 0))
+            .unwrap();
+        let accounts = customer_account_provider.list_accounts();
+        let expected_accounts = vec![
+            CustomerAccountReport {
+                client: 1,
+                available: Decimal::new(10, 0),
+                held: Decimal::new(0, 0),
+                total: Decimal::new(10, 0),
+                locked: false,
+            },
+            CustomerAccountReport {
+                client: 2,
+                available: Decimal::new(11, 0),
+                held: Decimal::new(12, 0),
+                total: Decimal::new(23, 0),
+                locked: false,
+            },
+        ];
+        assert!(accounts.is_ok());
+        let accounts = accounts.unwrap();
+        assert!(expected_accounts.len() == accounts.len());
+        assert!(expected_accounts
+            .iter()
+            .all(|account| accounts.contains(account)));
     }
 }
