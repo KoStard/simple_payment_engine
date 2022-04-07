@@ -2,10 +2,13 @@ use std::collections::HashMap;
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use mockall::*;
+use mockall::predicate::*;
 
 use crate::common_types::CustomerId;
 
 // TODO if we lock this instance, the performance will not be good. Instead we can lock per customer.
+#[automock]
 pub trait CustomerAccountProvider {
     fn get_available(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, ()>;
     fn get_held_amount(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, ()>;
@@ -35,11 +38,11 @@ impl CustomerAccount {
 
 #[derive(Serialize, Deserialize)]
 pub struct CustomerAccountReport {
-    client: CustomerId,
-    available: Decimal,
-    held: Decimal,
-    total: Decimal,
-    locked: bool,
+    pub client: CustomerId,
+    pub available: Decimal,
+    pub held: Decimal,
+    pub total: Decimal,
+    pub locked: bool,
 }
 
 pub struct InMemoryCustomerAccountProvider {

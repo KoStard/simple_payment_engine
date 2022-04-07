@@ -1,4 +1,6 @@
 use csv::WriterBuilder;
+use mockall::predicate::*;
+use mockall::*;
 use rust_decimal::Decimal;
 
 use crate::{
@@ -9,6 +11,7 @@ use crate::{
 
 use log::info;
 
+#[automock]
 pub trait TransactionsManager {
     fn structure_validation(transaction_request: &TransactionRequest) -> bool;
     // Returning bool for showing if the transaction was executed
@@ -334,6 +337,14 @@ impl TransactionsManager for DefaultTransactionsManager {
             .customer_account_provider
             .list_accounts()?
             .iter()
+            .inspect(|account| {
+                if account.available.scale() > 4 || account.held.scale() > 4 {
+                    panic!(
+                        "Some available/held values have > 4 scale! {}, {}",
+                        account.available, account.held
+                    )
+                }
+            })
             .map(|account| writer.serialize(account).map_err(|_| ()))
             .filter(|e| e.is_err())
             .nth(0)
@@ -345,5 +356,95 @@ impl TransactionsManager for DefaultTransactionsManager {
             String::from_utf8(writer.into_inner().map_err(|_| ())?).map_err(|_| ())?
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        customer_account_provider::MockCustomerAccountProvider,
+        transaction_history_provider::MockTransactionHistoryProvider,
+    };
+
+    use super::*;
+    #[test]
+    fn deposit_works_as_expected_as_first_transaction() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let amount = Decimal::new(10, 4);
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Deposit,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        mock_history_provider
+            .expect_write_transaction()
+            .with(eq(transaction_request.clone()))
+            .times(1)
+            .return_const(Ok(()));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_available()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(None));
+        mock_customer_account_provider
+            .expect_set_available()
+            .with(eq(client_id), eq(amount))
+            .times(1)
+            .return_const(Ok(()));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.deposit(transaction_request);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn deposit_works_as_expected_when_some_funds_already_present() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let amount = Decimal::new(10, 0);
+        let existing_amount = Decimal::new(5, 0);
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Deposit,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        mock_history_provider
+            .expect_write_transaction()
+            .with(eq(transaction_request.clone()))
+            .times(1)
+            .return_const(Ok(()));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_available()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(Some(existing_amount)));
+        mock_customer_account_provider
+            .expect_set_available()
+            .with(eq(client_id), eq(amount + existing_amount))
+            .times(1)
+            .return_const(Ok(()));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.deposit(transaction_request);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
     }
 }

@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::common_types::CustomerId;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionType {
     #[serde(rename = "deposit")]
     Deposit,
@@ -17,7 +17,7 @@ pub enum TransactionType {
     Chargeback
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct TransactionRequest {
     #[serde(rename = "type")]
     pub transaction_type: TransactionType,

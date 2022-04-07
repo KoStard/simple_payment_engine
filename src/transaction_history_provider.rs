@@ -1,20 +1,23 @@
 use std::collections::HashMap;
+use mockall::*;
+use mockall::predicate::*;
 
 use crate::transaction_request::{TransactionRequest, TransactionState};
 
 // TODO Add explanation why using Result
+#[automock]
 pub trait TransactionHistoryProvider {
-    fn write_transaction(&mut self, transaction_request: TransactionRequest) -> Result<(), ()>;
-    fn read_transaction(&mut self, transaction_id: u32) -> Result<Option<&TransactionRequest>, ()>;
-    fn write_transaction_state(
-        &mut self,
+    fn write_transaction<'a>(&'a mut self, transaction_request: TransactionRequest) -> Result<(), ()>;
+    fn read_transaction<'a>(&'a mut self, transaction_id: u32) -> Result<Option<&'a TransactionRequest>, ()>;
+    fn write_transaction_state<'a>(
+        &'a mut self,
         transaction_id: u32,
         transaction_state: TransactionState,
     ) -> Result<(), ()>;
-    fn read_transaction_state(
-        &mut self,
+    fn read_transaction_state<'a>(
+        &'a mut self,
         transaction_id: u32,
-    ) -> Result<Option<&TransactionState>, ()>;
+    ) -> Result<Option<&'a TransactionState>, ()>;
 }
 
 pub struct InMemoryTransactionHistoryProvider {
