@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use serde::{Serialize, Deserialize};
 
-use crate::common_types::CustomerId;
+use crate::common_types::{CustomerId, TransactionId};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionType {
@@ -24,7 +24,7 @@ pub struct TransactionRequest {
     #[serde(rename = "client")]
     pub client_id: CustomerId,
     #[serde(rename = "tx")]
-    pub transaction_id: u32,
+    pub transaction_id: TransactionId,
     pub amount: Option<Decimal>
 }
 

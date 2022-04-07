@@ -6,7 +6,7 @@ use rust_decimal::Decimal;
 use crate::{
     customer_account_provider::CustomerAccountProvider,
     transaction_history_provider::TransactionHistoryProvider,
-    transaction_request::{TransactionRequest, TransactionState, TransactionType},
+    transaction_request::{TransactionRequest, TransactionState, TransactionType}, common_types::TransactionId,
 };
 
 use log::info;
@@ -36,7 +36,7 @@ impl DefaultTransactionsManager {
         }
     }
 
-    fn is_duplicate_transaction_id(&mut self, transaction_id: u32) -> Result<bool, ()> {
+    fn is_duplicate_transaction_id(&mut self, transaction_id: TransactionId) -> Result<bool, ()> {
         Ok(self
             .transaction_history_provider
             .read_transaction(transaction_id)?

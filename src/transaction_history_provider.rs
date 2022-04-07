@@ -2,27 +2,27 @@ use std::collections::HashMap;
 use mockall::*;
 use mockall::predicate::*;
 
-use crate::transaction_request::{TransactionRequest, TransactionState};
+use crate::{transaction_request::{TransactionRequest, TransactionState}, common_types::TransactionId};
 
 // TODO Add explanation why using Result
 #[automock]
 pub trait TransactionHistoryProvider {
     fn write_transaction<'a>(&'a mut self, transaction_request: TransactionRequest) -> Result<(), ()>;
-    fn read_transaction<'a>(&'a mut self, transaction_id: u32) -> Result<Option<&'a TransactionRequest>, ()>;
+    fn read_transaction<'a>(&'a mut self, transaction_id: TransactionId) -> Result<Option<&'a TransactionRequest>, ()>;
     fn write_transaction_state<'a>(
         &'a mut self,
-        transaction_id: u32,
+        transaction_id: TransactionId,
         transaction_state: TransactionState,
     ) -> Result<(), ()>;
     fn read_transaction_state<'a>(
         &'a mut self,
-        transaction_id: u32,
+        transaction_id: TransactionId,
     ) -> Result<Option<&'a TransactionState>, ()>;
 }
 
 pub struct InMemoryTransactionHistoryProvider {
-    history: HashMap<u32, TransactionRequest>,
-    state: HashMap<u32, TransactionState>,
+    history: HashMap<TransactionId, TransactionRequest>,
+    state: HashMap<TransactionId, TransactionState>,
 }
 
 impl InMemoryTransactionHistoryProvider {
@@ -41,13 +41,13 @@ impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
         Ok(())
     }
 
-    fn read_transaction(&mut self, transaction_id: u32) -> Result<Option<&TransactionRequest>, ()> {
+    fn read_transaction(&mut self, transaction_id: TransactionId) -> Result<Option<&TransactionRequest>, ()> {
         Ok(self.history.get(&transaction_id))
     }
 
     fn write_transaction_state(
         &mut self,
-        transaction_id: u32,
+        transaction_id: TransactionId,
         transaction_state: TransactionState,
     ) -> Result<(), ()> {
         self.state.insert(transaction_id, transaction_state);
@@ -56,7 +56,7 @@ impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
 
     fn read_transaction_state(
         &mut self,
-        transaction_id: u32,
+        transaction_id: TransactionId,
     ) -> Result<Option<&TransactionState>, ()> {
         Ok(self.state.get(&transaction_id))
     }

@@ -1,2 +1,2 @@
 pub type CustomerId = u16;
-// TODO: Transaction ID
+pub type TransactionId = u32;
