@@ -5,14 +5,15 @@ use crate::transaction_request::TransactionRequest;
 
 pub struct TransactionRequestsReader<'a> {
     path: &'a str,
+    enforced_scale: u32
 }
 
 impl<'a> TransactionRequestsReader<'a> {
     pub fn new(path: &str) -> TransactionRequestsReader {
-        TransactionRequestsReader { path }
+        TransactionRequestsReader { path, enforced_scale: 4 }
     }
 
-    pub fn read(self: &Self) -> impl Iterator<Item = TransactionRequest> {
+    pub fn read(self: &Self) -> impl Iterator<Item = TransactionRequest> + '_ {
         return ReaderBuilder::new()
             .has_headers(true)
             .delimiter(b',')
@@ -23,12 +24,12 @@ impl<'a> TransactionRequestsReader<'a> {
             .map(|record| record.expect("Failed extracting records"))
             .map(|record| {
                 if let Some(mut amount) = record.amount {
-                    if amount.scale() > 4 {
+                    if amount.scale() > self.enforced_scale {
                         info!("Scaling down the decimal - {}", amount);
-                        amount.set_scale(amount.scale() - 4).expect("Couldn't change the amount scale.");
+                        amount.set_scale(amount.scale() - self.enforced_scale).expect("Couldn't change the amount scale.");
                         let mut new_amount = amount.trunc();
                         // TODO test
-                        new_amount.set_scale(4).expect("Couldn't change the new amount scale.");
+                        new_amount.set_scale(self.enforced_scale).expect("Couldn't change the new amount scale.");
                         return TransactionRequest {
                             amount: Some(new_amount),
                             ..record

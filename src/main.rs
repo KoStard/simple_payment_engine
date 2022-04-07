@@ -52,7 +52,6 @@ fn main() {
     );
     iterator
         .filter(|request| DefaultTransactionsManager::structure_validation(request))
-        // TODO Map -> Allow only 4 digits after the decimal
         .for_each(|request| {
             if !transactions_manager
                 .handle_transaction(request)
