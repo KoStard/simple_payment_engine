@@ -36,7 +36,8 @@ static LOGGER: SimpleLogger = SimpleLogger;
 
 fn main() {
     log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(LevelFilter::Info))
+        // We can add a flag for verbose execution or redirect the logs to some file, but for now just turning off
+        .map(|()| log::set_max_level(LevelFilter::Warn))
         .unwrap();
 
     let path = match args().nth(1) {
