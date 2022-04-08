@@ -1,14 +1,27 @@
-use std::collections::HashMap;
-use mockall::*;
 use mockall::predicate::*;
+use mockall::*;
+use std::collections::HashMap;
 
-use crate::{transaction_request::{TransactionRequest, TransactionState}, common_types::TransactionId};
+use crate::{
+    common_types::TransactionId,
+    transaction_request::{TransactionRequest, TransactionState},
+};
 
-// TODO Add explanation why using Result
+/**
+ * This trait is supposed to abstract all history providers and many of them will contain network calls or storage reads.
+ * So we can expect that in some cases this will include failures that are not related to the transaction/state existance or consistency. 
+ * Hence we need to allow the future instances to use these Results. We can also add different types of Errors.
+ */
 #[automock]
 pub trait TransactionHistoryProvider {
-    fn write_transaction<'a>(&'a mut self, transaction_request: TransactionRequest) -> Result<(), ()>;
-    fn read_transaction<'a>(&'a mut self, transaction_id: TransactionId) -> Result<Option<&'a TransactionRequest>, ()>;
+    fn write_transaction<'a>(
+        &'a mut self,
+        transaction_request: TransactionRequest,
+    ) -> Result<(), ()>;
+    fn read_transaction<'a>(
+        &'a mut self,
+        transaction_id: TransactionId,
+    ) -> Result<Option<&'a TransactionRequest>, ()>;
     fn write_transaction_state<'a>(
         &'a mut self,
         transaction_id: TransactionId,
@@ -36,12 +49,16 @@ impl InMemoryTransactionHistoryProvider {
 
 impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
     fn write_transaction(&mut self, transaction_request: TransactionRequest) -> Result<(), ()> {
+        // Maybe we can add transaction_id check here, to make sure no overrides happen
         self.history
             .insert(transaction_request.transaction_id, transaction_request);
         Ok(())
     }
 
-    fn read_transaction(&mut self, transaction_id: TransactionId) -> Result<Option<&TransactionRequest>, ()> {
+    fn read_transaction(
+        &mut self,
+        transaction_id: TransactionId,
+    ) -> Result<Option<&TransactionRequest>, ()> {
         Ok(self.history.get(&transaction_id))
     }
 
@@ -59,5 +76,88 @@ impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
         transaction_id: TransactionId,
     ) -> Result<Option<&TransactionState>, ()> {
         Ok(self.state.get(&transaction_id))
+    }
+}
+
+#[cfg(test)]
+mod in_memory_transaction_history_provider_tests {
+    use rust_decimal::Decimal;
+
+    use crate::transaction_request::TransactionType;
+
+    use super::*;
+    #[test]
+    fn write_transaction_works_as_expected() {
+        let mut transaction_history_provider = InMemoryTransactionHistoryProvider::new();
+        let client_id = 1;
+        let transaction_id = 1;
+        let amount = Decimal::new(10, 0);
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Withdrawal,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        assert!(transaction_history_provider
+            .write_transaction(transaction_request.clone())
+            .is_ok());
+        assert_eq!(
+            transaction_history_provider.history.get(&transaction_id),
+            Some(&transaction_request)
+        );
+    }
+    #[test]
+    fn read_transaction_works_as_expected() {
+        let mut transaction_history_provider = InMemoryTransactionHistoryProvider::new();
+        let client_id = 1;
+        let transaction_id = 1;
+        let amount = Decimal::new(10, 0);
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Withdrawal,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        assert!(transaction_history_provider
+            .write_transaction(transaction_request.clone())
+            .is_ok());
+        assert_eq!(
+            transaction_history_provider.read_transaction(transaction_id),
+            Ok(Some(&transaction_request))
+        );
+    }
+
+    #[test]
+    fn write_transaction_state_works_as_expected() {
+        let mut transaction_history_provider = InMemoryTransactionHistoryProvider::new();
+        let transaction_id = 1;
+        let transaction_state = TransactionState {
+            held: true,
+            charged_back: false,
+        };
+        assert!(transaction_history_provider
+            .write_transaction_state(transaction_id, transaction_state.clone())
+            .is_ok());
+        assert_eq!(
+            transaction_history_provider.state.get(&transaction_id),
+            Some(&transaction_state)
+        );
+    }
+
+    #[test]
+    fn read_transaction_state_works_as_expected() {
+        let mut transaction_history_provider = InMemoryTransactionHistoryProvider::new();
+        let transaction_id = 1;
+        let transaction_state = TransactionState {
+            held: true,
+            charged_back: false,
+        };
+        assert!(transaction_history_provider
+            .write_transaction_state(transaction_id, transaction_state.clone())
+            .is_ok());
+        assert_eq!(
+            transaction_history_provider.read_transaction_state(transaction_id),
+            Ok(Some(&transaction_state))
+        );
     }
 }

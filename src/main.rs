@@ -5,7 +5,7 @@ use log::{info, LevelFilter};
 
 use log::{Level, Metadata, Record};
 use transaction_history_provider::InMemoryTransactionHistoryProvider;
-use transaction_requests_reader::TransactionRequestsReader;
+use transaction_requests_reader::{TransactionRequestsReader, DefaultTransactionRequestsReader, DummyReader};
 
 use crate::transactions_manager::{DefaultTransactionsManager, TransactionsManager};
 
@@ -39,12 +39,13 @@ fn main() {
         .map(|()| log::set_max_level(LevelFilter::Info))
         .unwrap();
 
-    let path = match args().nth(1) {
-        Some(e) => e,
-        None => panic!("Path not passed for the input file!")
-    };
+    // let path = match args().nth(1) {
+    //     Some(e) => e,
+    //     None => panic!("Path not passed for the input file!")
+    // };
 
-    let reader = TransactionRequestsReader::new(&path);
+    // let reader = DefaultTransactionRequestsReader::new(&path);
+    let reader = DummyReader {};
     let iterator = reader.read();
     let mut transactions_manager = DefaultTransactionsManager::new(
         InMemoryTransactionHistoryProvider::new(),

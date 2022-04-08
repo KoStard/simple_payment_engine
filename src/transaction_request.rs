@@ -28,7 +28,7 @@ pub struct TransactionRequest {
     pub amount: Option<Decimal>
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
 pub struct TransactionState {
     pub held: bool,
     pub charged_back: bool,
