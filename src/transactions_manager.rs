@@ -396,8 +396,6 @@ impl TransactionsManager for DefaultTransactionsManager {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::{
         customer_account_provider::MockCustomerAccountProvider,
         transaction_history_provider::transaction_history_provider::MockTransactionHistoryProvider,
