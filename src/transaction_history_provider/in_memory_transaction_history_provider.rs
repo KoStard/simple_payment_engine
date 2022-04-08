@@ -21,7 +21,7 @@ impl InMemoryTransactionHistoryProvider {
 }
 
 impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
-    fn write_transaction(&mut self, transaction_request: TransactionRequest) -> Result<(), ()> {
+    fn write_transaction(&mut self, transaction_request: TransactionRequest) -> Result<(), String> {
         // Maybe we can add transaction_id check here, to make sure no overrides happen
         self.history
             .insert(transaction_request.transaction_id, transaction_request);
@@ -31,7 +31,7 @@ impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
     fn read_transaction(
         &mut self,
         transaction_id: TransactionId,
-    ) -> Result<Option<&TransactionRequest>, ()> {
+    ) -> Result<Option<&TransactionRequest>, String> {
         Ok(self.history.get(&transaction_id))
     }
 
@@ -39,7 +39,7 @@ impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
         &mut self,
         transaction_id: TransactionId,
         transaction_state: TransactionState,
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         self.state.insert(transaction_id, transaction_state);
         Ok(())
     }
@@ -47,7 +47,7 @@ impl TransactionHistoryProvider for InMemoryTransactionHistoryProvider {
     fn read_transaction_state(
         &mut self,
         transaction_id: TransactionId,
-    ) -> Result<Option<&TransactionState>, ()> {
+    ) -> Result<Option<&TransactionState>, String> {
         Ok(self.state.get(&transaction_id))
     }
 }

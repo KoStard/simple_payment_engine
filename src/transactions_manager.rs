@@ -16,8 +16,11 @@ use log::info;
 pub trait TransactionsManager {
     fn structure_validation(transaction_request: &TransactionRequest) -> bool;
     // Returning bool for showing if the transaction was executed
-    fn handle_transaction(&mut self, transaction_request: TransactionRequest) -> Result<bool, ()>;
-    fn print_report(&self) -> Result<(), ()>;
+    fn handle_transaction(
+        &mut self,
+        transaction_request: TransactionRequest,
+    ) -> Result<bool, String>;
+    fn print_report(&self) -> Result<(), String>;
 }
 
 pub struct DefaultTransactionsManager {
@@ -37,14 +40,17 @@ impl DefaultTransactionsManager {
         }
     }
 
-    fn is_duplicate_transaction_id(&mut self, transaction_id: TransactionId) -> Result<bool, ()> {
+    fn is_duplicate_transaction_id(
+        &mut self,
+        transaction_id: TransactionId,
+    ) -> Result<bool, String> {
         Ok(self
             .transaction_history_provider
             .read_transaction(transaction_id)?
             .is_some())
     }
 
-    fn deposit(&mut self, transaction_request: TransactionRequest) -> Result<bool, ()> {
+    fn deposit(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
         if self.is_duplicate_transaction_id(transaction_request.transaction_id)? {
             info!("Transaction with duplicate ID, skipping");
             return Ok(false);
@@ -65,7 +71,7 @@ impl DefaultTransactionsManager {
         Ok(true)
     }
 
-    fn withdraw(&mut self, transaction_request: TransactionRequest) -> Result<bool, ()> {
+    fn withdraw(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
         if self.is_duplicate_transaction_id(transaction_request.transaction_id)? {
             info!("Transaction with duplicate ID, skipping");
             return Ok(false);
@@ -114,7 +120,7 @@ impl DefaultTransactionsManager {
         Ok(true)
     }
 
-    fn dispute(&mut self, transaction_request: TransactionRequest) -> Result<bool, ()> {
+    fn dispute(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
         // If no amount exists, skipping
         // TODO: Possibly dangerous
         if let Some(existing_amount) = self
@@ -181,7 +187,7 @@ impl DefaultTransactionsManager {
         Ok(true)
     }
 
-    fn resolve(&mut self, transaction_request: TransactionRequest) -> Result<bool, ()> {
+    fn resolve(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
         // TODO implement mechanism for preventing the transactions from getting disputed/resolved/charged back multiple times!
         let existing_amount = self
             .customer_account_provider
@@ -239,7 +245,7 @@ impl DefaultTransactionsManager {
         Ok(true)
     }
 
-    fn chargeback(&mut self, transaction_request: TransactionRequest) -> Result<bool, ()> {
+    fn chargeback(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
         if let Some(disputed_transaction) = self
             .transaction_history_provider
             .read_transaction(transaction_request.transaction_id)?
@@ -313,7 +319,10 @@ impl TransactionsManager for DefaultTransactionsManager {
         }
     }
 
-    fn handle_transaction(&mut self, transaction_request: TransactionRequest) -> Result<bool, ()> {
+    fn handle_transaction(
+        &mut self,
+        transaction_request: TransactionRequest,
+    ) -> Result<bool, String> {
         // TODO think about the system consistency if something goes wrong
         // Maybe instead of thinking about current available amount, check the recent transactions and recalculate it? That will let us
         // fix the consistency issue.
@@ -328,7 +337,7 @@ impl TransactionsManager for DefaultTransactionsManager {
         }
     }
 
-    fn print_report(&self) -> Result<(), ()> {
+    fn print_report(&self) -> Result<(), String> {
         // TODO improve the errors handling! Initially very hacky as concentrating on the logic.
         let mut writer = WriterBuilder::new()
             .has_headers(true)
@@ -346,15 +355,16 @@ impl TransactionsManager for DefaultTransactionsManager {
                     )
                 }
             })
-            .map(|account| writer.serialize(account).map_err(|_| ()))
+            .map(|account| writer.serialize(account))
             .filter(|e| e.is_err())
             .nth(0)
         {
-            return err;
+            return err.map_err(|e| e.to_string());
         }
         println!(
             "{}",
-            String::from_utf8(writer.into_inner().map_err(|_| ())?).map_err(|_| ())?
+            String::from_utf8(writer.into_inner().map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?
         );
         Ok(())
     }

@@ -9,13 +9,13 @@ use crate::common_types::CustomerId;
 
 #[automock]
 pub trait CustomerAccountProvider {
-    fn get_available(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, ()>;
-    fn get_held_amount(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, ()>;
-    fn get_locked_status(&mut self, customer_id: CustomerId) -> Result<Option<bool>, ()>;
-    fn set_available(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), ()>;
-    fn set_held_amount(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), ()>;
-    fn set_locked_status(&mut self, customer_id: CustomerId, locked: bool) -> Result<(), ()>;
-    fn list_accounts(&self) -> Result<Vec<CustomerAccountReport>, ()>;
+    fn get_available(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, String>;
+    fn get_held_amount(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, String>;
+    fn get_locked_status(&mut self, customer_id: CustomerId) -> Result<Option<bool>, String>;
+    fn set_available(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), String>;
+    fn set_held_amount(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), String>;
+    fn set_locked_status(&mut self, customer_id: CustomerId, locked: bool) -> Result<(), String>;
+    fn list_accounts(&self) -> Result<Vec<CustomerAccountReport>, String>;
 }
 
 #[derive(Default)]
@@ -56,19 +56,19 @@ impl InMemoryCustomerAccountProvider {
     }
 }
 impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
-    fn get_available(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, ()> {
+    fn get_available(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, String> {
         Ok(self.storage.get(&customer_id).map(|c| c.available))
     }
 
-    fn get_held_amount(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, ()> {
+    fn get_held_amount(&mut self, customer_id: CustomerId) -> Result<Option<Decimal>, String> {
         Ok(self.storage.get(&customer_id).map(|c| c.held))
     }
 
-    fn get_locked_status(&mut self, customer_id: CustomerId) -> Result<Option<bool>, ()> {
+    fn get_locked_status(&mut self, customer_id: CustomerId) -> Result<Option<bool>, String> {
         Ok(self.storage.get(&customer_id).map(|c| c.locked))
     }
 
-    fn set_available(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), ()> {
+    fn set_available(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), String> {
         if let Some(customer_account) = self.storage.get_mut(&customer_id) {
             customer_account.available = balance;
         } else {
@@ -80,7 +80,7 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
         Ok(())
     }
 
-    fn set_held_amount(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), ()> {
+    fn set_held_amount(&mut self, customer_id: CustomerId, balance: Decimal) -> Result<(), String> {
         if let Some(customer_account) = self.storage.get_mut(&customer_id) {
             customer_account.held = balance;
         } else {
@@ -90,7 +90,7 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
         Ok(())
     }
 
-    fn set_locked_status(&mut self, customer_id: CustomerId, locked: bool) -> Result<(), ()> {
+    fn set_locked_status(&mut self, customer_id: CustomerId, locked: bool) -> Result<(), String> {
         if let Some(customer_account) = self.storage.get_mut(&customer_id) {
             customer_account.locked = locked;
         } else {
@@ -100,7 +100,7 @@ impl CustomerAccountProvider for InMemoryCustomerAccountProvider {
         Ok(())
     }
 
-    fn list_accounts(&self) -> Result<Vec<CustomerAccountReport>, ()> {
+    fn list_accounts(&self) -> Result<Vec<CustomerAccountReport>, String> {
         return Ok(self
             .storage
             .iter()

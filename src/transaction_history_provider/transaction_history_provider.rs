@@ -16,19 +16,19 @@ pub trait TransactionHistoryProvider {
     fn write_transaction<'a>(
         &'a mut self,
         transaction_request: TransactionRequest,
-    ) -> Result<(), ()>;
+    ) -> Result<(), String>;
     fn read_transaction<'a>(
         &'a mut self,
         transaction_id: TransactionId,
-    ) -> Result<Option<&'a TransactionRequest>, ()>;
+    ) -> Result<Option<&'a TransactionRequest>, String>;
     fn write_transaction_state<'a>(
         &'a mut self,
         transaction_id: TransactionId,
         transaction_state: TransactionState,
-    ) -> Result<(), ()>;
+    ) -> Result<(), String>;
     fn read_transaction_state<'a>(
         &'a mut self,
         transaction_id: TransactionId,
-    ) -> Result<Option<&'a TransactionState>, ()>;
+    ) -> Result<Option<&'a TransactionState>, String>;
 }
 
