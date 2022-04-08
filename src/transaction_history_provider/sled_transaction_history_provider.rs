@@ -1,3 +1,8 @@
+/**
+ * This is the future history provider that will be able to handle u32::MAX number of records without running out of memory.
+ * It's not yet ready.
+ */
+
 use sled::{Db, Tree};
 use tempfile::NamedTempFile;
 

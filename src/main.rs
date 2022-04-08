@@ -39,13 +39,13 @@ fn main() {
         .map(|()| log::set_max_level(LevelFilter::Info))
         .unwrap();
 
-    // let path = match args().nth(1) {
-    //     Some(e) => e,
-    //     None => panic!("Path not passed for the input file!")
-    // };
+    let path = match args().nth(1) {
+        Some(e) => e,
+        None => panic!("Path not passed for the input file!")
+    };
 
-    // let reader = DefaultTransactionRequestsReader::new(&path);
-    let reader = DummyReader {};
+    let reader = DefaultTransactionRequestsReader::new(&path);
+    // let reader = DummyReader {};
     let iterator = reader.read();
     let mut transactions_manager = DefaultTransactionsManager::new(
         InMemoryTransactionHistoryProvider::new(),

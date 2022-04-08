@@ -46,6 +46,7 @@ impl DefaultTransactionsManager {
     ) -> Result<bool, String> {
         Ok(self
             .transaction_history_provider
+            .as_mut()
             .read_transaction(transaction_id)?
             .is_some())
     }
@@ -57,9 +58,10 @@ impl DefaultTransactionsManager {
         }
         let existing_amount = self
             .customer_account_provider
+            .as_mut()
             .get_available(transaction_request.client_id)?
             .unwrap_or(Decimal::ZERO);
-        self.customer_account_provider.set_available(
+        self.customer_account_provider.as_mut().set_available(
             transaction_request.client_id,
             existing_amount
                 + transaction_request
@@ -67,6 +69,7 @@ impl DefaultTransactionsManager {
                     .expect("Transaction amount not present when depositing!"),
         )?;
         self.transaction_history_provider
+            .as_mut()
             .write_transaction(transaction_request)?;
         Ok(true)
     }
@@ -78,6 +81,7 @@ impl DefaultTransactionsManager {
         }
         if let Some(locked) = self
             .customer_account_provider
+            .as_mut()
             .get_locked_status(transaction_request.client_id)?
         {
             if locked {
@@ -93,18 +97,20 @@ impl DefaultTransactionsManager {
         // If the amount is not present, we just skip. Maybe we can add some logging later.
         if let Some(existing_amount) = self
             .customer_account_provider
+            .as_mut()
             .get_available(transaction_request.client_id)?
         {
             let transaction_amount = transaction_request
                 .amount
                 .expect("Transaction amount not present when withdrawing!");
             if existing_amount >= transaction_amount {
-                self.customer_account_provider.set_available(
+                self.customer_account_provider.as_mut().set_available(
                     transaction_request.client_id,
                     existing_amount - transaction_amount,
                 )?;
                 self.transaction_history_provider
                     .write_transaction(transaction_request)?;
+                return Ok(true);
             } else {
                 info!(
                     "The customer {} doesn't have enough available funds to withdraw {}",
@@ -117,84 +123,90 @@ impl DefaultTransactionsManager {
                 transaction_request.client_id
             );
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn dispute(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
-        // If no amount exists, skipping
-        // TODO: Possibly dangerous
-        if let Some(existing_amount) = self
+        let existing_amount: Decimal = self
             .customer_account_provider
+            .as_mut()
             .get_available(transaction_request.client_id)?
+            .unwrap_or(Decimal::ZERO);
+        if let Some(disputed_transaction) = self
+            .transaction_history_provider
+            .as_mut()
+            .read_transaction(transaction_request.transaction_id)?
         {
-            if let Some(disputed_transaction) = self
+            if disputed_transaction.client_id != transaction_request.client_id {
+                info!("Client ID of the disputed transaction doesn't match the client ID of the request, possibly malicious client");
+                return Ok(false);
+            }
+
+            let disputed_amount = disputed_transaction
+                .amount
+                .expect("Disputed transaction doesn't have amount");
+
+            let disputed_transaction_state = self
                 .transaction_history_provider
-                .read_transaction(transaction_request.transaction_id)?
+                .as_mut()
+                .read_transaction_state(transaction_request.transaction_id)?;
+            // Skipping if the transaction was already disputed or charged back
+            if Some(true)
+                == disputed_transaction_state.map(|state| state.held || state.charged_back)
             {
-                if disputed_transaction.client_id != transaction_request.client_id {
-                    info!("Client ID of the disputed transaction doesn't match the client ID of the request, possibly malicious client");
-                    return Ok(false);
-                }
+                info!(
+                    "Transaction {} already on hold or charged back, not holding again",
+                    transaction_request.transaction_id
+                );
+                return Ok(false);
+            }
+            // Allowing disputes even if they will create negative available funds. Customers first!
 
-                let disputed_amount = disputed_transaction
-                    .amount
-                    .expect("Disputed transaction doesn't have amount");
-
-                let disputed_transaction_state = self
-                    .transaction_history_provider
-                    .read_transaction_state(transaction_request.transaction_id)?;
-                // Skipping if the transaction was already disputed or charged back
-                if Some(true)
-                    == disputed_transaction_state.map(|state| state.held || state.charged_back)
-                {
-                    info!(
-                        "Transaction {} already on hold or charged back, not holding again",
-                        transaction_request.transaction_id
-                    );
-                    return Ok(false);
-                }
-                // Allowing disputes even if they will create negative available funds. Customers first!
-
-                // TODO: with ? failing at random moment, while this might break the consistency of the system. Think if some guarantee system can be implemented. Transactions?
-                self.customer_account_provider.set_available(
-                    transaction_request.client_id,
-                    existing_amount - disputed_amount,
-                )?;
-                let existing_held_amount = self
-                    .customer_account_provider
-                    .get_held_amount(transaction_request.client_id)?
-                    .unwrap_or(Decimal::ZERO);
-                self.customer_account_provider.set_held_amount(
-                    transaction_request.client_id,
-                    existing_held_amount + disputed_amount,
-                )?;
-                let new_transaction_state = disputed_transaction_state
-                    .map(|existing_state| {
-                        let mut new_state = existing_state.clone();
-                        new_state.held = true;
-                        new_state
-                    })
-                    .unwrap_or_else(|| TransactionState {
-                        held: true,
-                        ..Default::default()
-                    });
-                self.transaction_history_provider.write_transaction_state(
+            // TODO: with ? failing at random moment, while this might break the consistency of the system. Think if some guarantee system can be implemented. Transactions?
+            self.customer_account_provider.as_mut().set_available(
+                transaction_request.client_id,
+                existing_amount - disputed_amount,
+            )?;
+            let existing_held_amount = self
+                .customer_account_provider
+                .as_mut()
+                .get_held_amount(transaction_request.client_id)?
+                .unwrap_or(Decimal::ZERO);
+            self.customer_account_provider.as_mut().set_held_amount(
+                transaction_request.client_id,
+                existing_held_amount + disputed_amount,
+            )?;
+            let new_transaction_state = disputed_transaction_state
+                .map(|existing_state| {
+                    let mut new_state = existing_state.clone();
+                    new_state.held = true;
+                    new_state
+                })
+                .unwrap_or_else(|| TransactionState {
+                    held: true,
+                    ..Default::default()
+                });
+            self.transaction_history_provider
+                .as_mut()
+                .write_transaction_state(
                     transaction_request.transaction_id,
                     new_transaction_state,
                 )?;
-            }
+            return Ok(true);
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn resolve(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
         // TODO implement mechanism for preventing the transactions from getting disputed/resolved/charged back multiple times!
         let existing_amount = self
             .customer_account_provider
+            .as_mut()
             .get_available(transaction_request.client_id)?
             .unwrap_or(Decimal::ZERO);
         if let Some(disputed_transaction) = self
             .transaction_history_provider
+            .as_mut()
             .read_transaction(transaction_request.transaction_id)?
         {
             if disputed_transaction.client_id != transaction_request.client_id {
@@ -208,6 +220,7 @@ impl DefaultTransactionsManager {
 
             if let Some(disputed_transaction_state) = self
                 .transaction_history_provider
+                .as_mut()
                 .read_transaction_state(transaction_request.transaction_id)?
             {
                 // Skipping if the transaction was not held or was already charged_back
@@ -220,34 +233,39 @@ impl DefaultTransactionsManager {
                 }
                 if let Some(existing_held_amount) = self
                     .customer_account_provider
+                    .as_mut()
                     .get_held_amount(transaction_request.client_id)?
                 {
                     if existing_held_amount < disputed_amount {
                         panic!("Something went wrong, disputed transaction funds are not held");
                     }
-                    self.customer_account_provider.set_available(
+                    self.customer_account_provider.as_mut().set_available(
                         transaction_request.client_id,
                         existing_amount + disputed_amount,
                     )?;
-                    self.customer_account_provider.set_held_amount(
+                    self.customer_account_provider.as_mut().set_held_amount(
                         transaction_request.client_id,
                         existing_held_amount - disputed_amount,
                     )?;
                     let mut new_transaction_state = disputed_transaction_state.clone();
                     new_transaction_state.held = false;
-                    self.transaction_history_provider.write_transaction_state(
-                        transaction_request.transaction_id,
-                        new_transaction_state,
-                    )?;
+                    self.transaction_history_provider
+                        .as_mut()
+                        .write_transaction_state(
+                            transaction_request.transaction_id,
+                            new_transaction_state,
+                        )?;
+                    return Ok(true);
                 }
             }
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn chargeback(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
         if let Some(disputed_transaction) = self
             .transaction_history_provider
+            .as_mut()
             .read_transaction(transaction_request.transaction_id)?
         {
             if disputed_transaction.client_id != transaction_request.client_id {
@@ -261,6 +279,7 @@ impl DefaultTransactionsManager {
 
             if let Some(disputed_transaction_state) = self
                 .transaction_history_provider
+                .as_mut()
                 .read_transaction_state(transaction_request.transaction_id)?
             {
                 // Skipping if the transaction was not held or was already charged_back
@@ -273,28 +292,33 @@ impl DefaultTransactionsManager {
                 }
                 if let Some(existing_held_amount) = self
                     .customer_account_provider
+                    .as_mut()
                     .get_held_amount(transaction_request.client_id)?
                 {
                     if existing_held_amount < disputed_amount {
                         panic!("Something went wrong, disputed transaction funds are not held");
                     }
-                    self.customer_account_provider.set_held_amount(
+                    self.customer_account_provider.as_mut().set_held_amount(
                         transaction_request.client_id,
                         existing_held_amount - disputed_amount,
                     )?;
                     self.customer_account_provider
+                        .as_mut()
                         .set_locked_status(transaction_request.client_id, true)?;
                     let mut new_transaction_state = disputed_transaction_state.clone();
                     new_transaction_state.held = false;
                     new_transaction_state.charged_back = true;
-                    self.transaction_history_provider.write_transaction_state(
-                        transaction_request.transaction_id,
-                        new_transaction_state,
-                    )?;
+                    self.transaction_history_provider
+                        .as_mut()
+                        .write_transaction_state(
+                            transaction_request.transaction_id,
+                            new_transaction_state,
+                        )?;
+                    return Ok(true);
                 }
             }
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn has_positive_amount(transaction_request: &TransactionRequest) -> bool {
@@ -372,6 +396,8 @@ impl TransactionsManager for DefaultTransactionsManager {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{
         customer_account_provider::MockCustomerAccountProvider,
         transaction_history_provider::transaction_history_provider::MockTransactionHistoryProvider,
@@ -457,5 +483,238 @@ mod tests {
         let result = transactions_manager.deposit(transaction_request);
         assert!(result.is_ok());
         assert!(result.unwrap());
+    }
+
+    #[test]
+    fn withdraw_works_as_expected_in_happy_case() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let amount = Decimal::new(5, 0);
+        let existing_amount = Decimal::new(10, 0);
+        let locked = false;
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Withdrawal,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        mock_history_provider
+            .expect_write_transaction()
+            .with(eq(transaction_request.clone()))
+            .times(1)
+            .return_const(Ok(()));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_available()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(Some(existing_amount)));
+        mock_customer_account_provider
+            .expect_get_locked_status()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(Some(locked)));
+        mock_customer_account_provider
+            .expect_set_available()
+            .with(eq(client_id), eq(existing_amount - amount))
+            .times(1)
+            .return_const(Ok(()));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.withdraw(transaction_request);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn withdraw_skips_when_no_enough_funds_present() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let amount = Decimal::new(10, 0);
+        let existing_amount = Decimal::new(5, 0);
+        let locked = false;
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Withdrawal,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_available()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(Some(existing_amount)));
+        mock_customer_account_provider
+            .expect_get_locked_status()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(Some(locked)));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.withdraw(transaction_request);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn withdraw_skips_when_no_account_state_found() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let amount = Decimal::new(5, 0);
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Withdrawal,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        let locked = false;
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_available()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(None));
+        mock_customer_account_provider
+            .expect_get_locked_status()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(Some(locked)));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.withdraw(transaction_request);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn withdraw_skips_when_account_locked() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let amount = Decimal::new(5, 0);
+        let locked = true;
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Withdrawal,
+            client_id,
+            transaction_id,
+            amount: Some(amount),
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_locked_status()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(Some(locked)));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.withdraw(transaction_request);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn dispute_does_nothing_when_transaction_not_found() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Dispute,
+            client_id,
+            transaction_id,
+            amount: None,
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_available()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.dispute(transaction_request);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn resolve_does_nothing_when_transaction_not_found() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Resolve,
+            client_id,
+            transaction_id,
+            amount: None,
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mut mock_customer_account_provider = MockCustomerAccountProvider::new();
+        mock_customer_account_provider
+            .expect_get_available()
+            .with(eq(client_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.resolve(transaction_request);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn chargeback_does_nothing_when_transaction_not_found() {
+        let transaction_id = 1;
+        let client_id = 1;
+        let transaction_request = TransactionRequest {
+            transaction_type: TransactionType::Chargeback,
+            client_id,
+            transaction_id,
+            amount: None,
+        };
+        let mut mock_history_provider = MockTransactionHistoryProvider::new();
+        mock_history_provider
+            .expect_read_transaction()
+            .with(eq(transaction_id))
+            .times(1)
+            .return_const(Ok(None));
+        let mock_customer_account_provider = MockCustomerAccountProvider::new();
+        let mut transactions_manager =
+            DefaultTransactionsManager::new(mock_history_provider, mock_customer_account_provider);
+        let result = transactions_manager.chargeback(transaction_request);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
     }
 }
