@@ -1,6 +1,6 @@
 /**
  * This is the future history provider that will be able to handle u32::MAX number of records without running out of memory.
- * It's not yet ready.
+ * It's not yet ready. This can be part of V2, but currently not planning to implement. The InMemoryTransactionHistoryProvider is the one used currently.
  */
 
 use sled::{Db, Tree};
