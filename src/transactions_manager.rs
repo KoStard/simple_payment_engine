@@ -24,10 +24,8 @@ pub trait TransactionsManager {
 }
 
 pub struct DefaultTransactionsManager {
-    // TODO Understand why Box
-    // TODO remove the pubs
-    pub transaction_history_provider: Box<dyn TransactionHistoryProvider>,
-    pub customer_account_provider: Box<dyn CustomerAccountProvider>,
+    transaction_history_provider: Box<dyn TransactionHistoryProvider>,
+    customer_account_provider: Box<dyn CustomerAccountProvider>,
 }
 impl DefaultTransactionsManager {
     pub fn new(
@@ -198,7 +196,6 @@ impl DefaultTransactionsManager {
     }
 
     fn resolve(&mut self, transaction_request: TransactionRequest) -> Result<bool, String> {
-        // TODO implement mechanism for preventing the transactions from getting disputed/resolved/charged back multiple times!
         let existing_amount = self
             .customer_account_provider
             .as_mut()
@@ -362,7 +359,6 @@ impl TransactionsManager for DefaultTransactionsManager {
     }
 
     fn print_report(&self) -> Result<(), String> {
-        // TODO improve the errors handling! Initially very hacky as concentrating on the logic.
         let mut writer = WriterBuilder::new()
             .has_headers(true)
             .delimiter(b',')
