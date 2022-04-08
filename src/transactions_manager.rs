@@ -4,9 +4,10 @@ use mockall::*;
 use rust_decimal::Decimal;
 
 use crate::{
+    common_types::TransactionId,
     customer_account_provider::CustomerAccountProvider,
-    transaction_history_provider::TransactionHistoryProvider,
-    transaction_request::{TransactionRequest, TransactionState, TransactionType}, common_types::TransactionId,
+    transaction_history_provider::transaction_history_provider::TransactionHistoryProvider,
+    transaction_request::{TransactionRequest, TransactionState, TransactionType},
 };
 
 use log::info;
@@ -363,7 +364,7 @@ impl TransactionsManager for DefaultTransactionsManager {
 mod tests {
     use crate::{
         customer_account_provider::MockCustomerAccountProvider,
-        transaction_history_provider::MockTransactionHistoryProvider,
+        transaction_history_provider::transaction_history_provider::MockTransactionHistoryProvider,
     };
 
     use super::*;

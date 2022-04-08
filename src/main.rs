@@ -4,7 +4,7 @@ use customer_account_provider::InMemoryCustomerAccountProvider;
 use log::{info, LevelFilter};
 
 use log::{Level, Metadata, Record};
-use transaction_history_provider::InMemoryTransactionHistoryProvider;
+use transaction_history_provider::in_memory_transaction_history_provider::InMemoryTransactionHistoryProvider;
 use transaction_requests_reader::{TransactionRequestsReader, DefaultTransactionRequestsReader, DummyReader};
 
 use crate::transactions_manager::{DefaultTransactionsManager, TransactionsManager};
