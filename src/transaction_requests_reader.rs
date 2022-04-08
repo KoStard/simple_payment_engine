@@ -63,7 +63,7 @@ pub struct DummyReader;
 // For stress testing
 impl TransactionRequestsReader for DummyReader {
     fn read(self: &Self) -> Box<dyn Iterator<Item = TransactionRequest>> {
-        return Box::new((1..=u32::MAX).map(|i| TransactionRequest {
+        return Box::new((1..=1000000).map(|i| TransactionRequest {
             transaction_type: TransactionType::Deposit,
             client_id: 1,
             transaction_id: i,

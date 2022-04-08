@@ -3,6 +3,19 @@ A simple payment engine as a Rust project
 
 ## V1
 Explanation:
+- Separating the problem into couple of traits:
+    - Transactions history provider
+    - Customer account provider
+    - Transaction requests reader
+- Then I implement each of them separately. 
+- Currently using in-memory implementations for the sake of simplicity, but I also started working on database approach (using sled for now), although that will require more time.
+- For the transactions history provider, currently it's keeping transactions and their states in separate hashmaps. This way the transaction itself will never change, while its state can change.
+- Adding unit-tests where possible, but there are some technical limitations that will require more time to overcome (like the automock limitation of usage with references [link](https://docs.rs/mockall/0.8.3/mockall/#:~:text=Mocking%20generic%20structs%20and%20generic%20traits%20is%20not%20a%20problem.%20The%20mock%20struct%20will%20be%20generic%2C%20too.%20The%20same%20restrictions%20apply%20as%20with%20mocking%20generic%20methods%3A%20each%20generic%20parameter%20must%20be%20%27static%2C%20and%20generic%20lifetime%20parameters%20are%20not%20allowed.))
+- Allowing the available funds to go to negative, as I think this protects the customers from possibly malicious vendors.
+- Enforcing the decimal precision when noticing anomalies in the source data.
+- When account is frozen/locked, we are not allowing the client to withdraw money, but still letting them to deposit/dispute/resolve/chargeback, because this again can protect the customers from malicious vendors. Imagine one vendor taking multiple incorrect deposits, then the first one gets charged back, we don't want to block the other customers from receiving their money back.
+- Not letting to dispute already disputed or charged back transaction.
+- Not letting to chargeback/resolve non-disputed transactions.
 
 Testing:
 - Manual testing with some test files
