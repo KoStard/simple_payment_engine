@@ -4,6 +4,10 @@ A simple payment engine as a Rust project
 ## V1
 Explanation:
 
+Testing:
+- Manual testing with some test files
+- Unit-test covering most of the logic (because of automock limitations some lines couldn't be covered, but with more time that can be fixed as well)
+
 Concerns:
 - Funds and transactions are stored separately. What this means is that they can get out of sync if some issue happens between their updates.
 - Currently keeping the transactions history in memory, which will limit in case the number of distinct transactions reaches the maximum possible (u32::MAX). To overcome that we can use some database engine to keep the history in the storage. I recently found the `sled` which can be interesting solution to this problem, but we'll need to deal with serialization/deserialization every time. More sophisticated solutions can be built with caching, to minimise the latency impact, but I think it will be bigger than the scope of the project.
