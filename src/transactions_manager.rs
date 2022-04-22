@@ -228,32 +228,31 @@ impl DefaultTransactionsManager {
                     );
                     return Ok(false);
                 }
-                if let Some(existing_held_amount) = self
+                let existing_held_amount = self
                     .customer_account_provider
                     .as_mut()
                     .get_held_amount(transaction_request.client_id)?
-                {
-                    if existing_held_amount < disputed_amount {
-                        panic!("Something went wrong, disputed transaction funds are not held");
-                    }
-                    self.customer_account_provider.as_mut().set_available(
-                        transaction_request.client_id,
-                        existing_amount + disputed_amount,
-                    )?;
-                    self.customer_account_provider.as_mut().set_held_amount(
-                        transaction_request.client_id,
-                        existing_held_amount - disputed_amount,
-                    )?;
-                    let mut new_transaction_state = disputed_transaction_state.clone();
-                    new_transaction_state.held = false;
-                    self.transaction_history_provider
-                        .as_mut()
-                        .write_transaction_state(
-                            transaction_request.transaction_id,
-                            new_transaction_state,
-                        )?;
-                    return Ok(true);
+                    .unwrap_or(Decimal::ZERO);
+                if existing_held_amount < disputed_amount {
+                    panic!("Something went wrong, disputed transaction funds are not held");
                 }
+                self.customer_account_provider.as_mut().set_available(
+                    transaction_request.client_id,
+                    existing_amount + disputed_amount,
+                )?;
+                self.customer_account_provider.as_mut().set_held_amount(
+                    transaction_request.client_id,
+                    existing_held_amount - disputed_amount,
+                )?;
+                let mut new_transaction_state = disputed_transaction_state.clone();
+                new_transaction_state.held = false;
+                self.transaction_history_provider
+                    .as_mut()
+                    .write_transaction_state(
+                        transaction_request.transaction_id,
+                        new_transaction_state,
+                    )?;
+                return Ok(true);
             }
         }
         Ok(false)
@@ -287,32 +286,31 @@ impl DefaultTransactionsManager {
                     );
                     return Ok(false);
                 }
-                if let Some(existing_held_amount) = self
+                let existing_held_amount = self
                     .customer_account_provider
                     .as_mut()
                     .get_held_amount(transaction_request.client_id)?
-                {
-                    if existing_held_amount < disputed_amount {
-                        panic!("Something went wrong, disputed transaction funds are not held");
-                    }
-                    self.customer_account_provider.as_mut().set_held_amount(
-                        transaction_request.client_id,
-                        existing_held_amount - disputed_amount,
-                    )?;
-                    self.customer_account_provider
-                        .as_mut()
-                        .set_locked_status(transaction_request.client_id, true)?;
-                    let mut new_transaction_state = disputed_transaction_state.clone();
-                    new_transaction_state.held = false;
-                    new_transaction_state.charged_back = true;
-                    self.transaction_history_provider
-                        .as_mut()
-                        .write_transaction_state(
-                            transaction_request.transaction_id,
-                            new_transaction_state,
-                        )?;
-                    return Ok(true);
+                    .unwrap_or(Decimal::ZERO);
+                if existing_held_amount < disputed_amount {
+                    panic!("Something went wrong, disputed transaction funds are not held");
                 }
+                self.customer_account_provider.as_mut().set_held_amount(
+                    transaction_request.client_id,
+                    existing_held_amount - disputed_amount,
+                )?;
+                self.customer_account_provider
+                    .as_mut()
+                    .set_locked_status(transaction_request.client_id, true)?;
+                let mut new_transaction_state = disputed_transaction_state.clone();
+                new_transaction_state.held = false;
+                new_transaction_state.charged_back = true;
+                self.transaction_history_provider
+                    .as_mut()
+                    .write_transaction_state(
+                        transaction_request.transaction_id,
+                        new_transaction_state,
+                    )?;
+                return Ok(true);
             }
         }
         Ok(false)
@@ -393,8 +391,11 @@ impl TransactionsManager for DefaultTransactionsManager {
 #[cfg(test)]
 mod tests {
     use crate::{
-        customer_account_provider::MockCustomerAccountProvider,
-        transaction_history_provider::transaction_history_provider::MockTransactionHistoryProvider,
+        customer_account_provider::{InMemoryCustomerAccountProvider, MockCustomerAccountProvider},
+        transaction_history_provider::{
+            in_memory_transaction_history_provider::InMemoryTransactionHistoryProvider,
+            transaction_history_provider::MockTransactionHistoryProvider,
+        },
     };
 
     use super::*;
@@ -711,4 +712,852 @@ mod tests {
         assert!(result.is_ok());
         assert!(!result.unwrap());
     }
+
+    // Using actual instances from here onwards, because of the issue with mocking
+    #[test]
+    fn dispute_does_nothing_when_original_transaction_client_id_is_different() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        let customer_account_provider = InMemoryCustomerAccountProvider::new();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Dispute,
+            client_id: 2,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(manager.customer_account_provider.get_available(1), Ok(None));
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn dispute_does_nothing_when_transaction_was_already_held() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let customer_account_provider = InMemoryCustomerAccountProvider::new();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Dispute,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(manager.customer_account_provider.get_available(1), Ok(None));
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn dispute_does_nothing_when_transaction_was_already_charged_back() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: false,
+                    charged_back: true,
+                },
+            )
+            .unwrap();
+        let customer_account_provider = InMemoryCustomerAccountProvider::new();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Dispute,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(manager.customer_account_provider.get_available(1), Ok(None));
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn dispute_works_as_expected_in_happy_case() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: false,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::new(10, 0))
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Dispute,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(true));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert!(
+            manager
+                .transaction_history_provider
+                .as_mut()
+                .read_transaction_state(1)
+                .unwrap()
+                .unwrap()
+                .held
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(false))
+        );
+    }
+
+    #[test]
+    fn dispute_works_as_expected_if_transaction_state_doesnt_exist() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::new(10, 0))
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Dispute,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(true));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert!(
+            manager
+                .transaction_history_provider
+                .as_mut()
+                .read_transaction_state(1)
+                .unwrap()
+                .unwrap()
+                .held
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(false))
+        );
+    }
+
+    #[test]
+    fn dispute_works_as_expected_even_if_account_is_locked() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::new(10, 0))
+            .unwrap();
+        customer_account_provider
+            .set_locked_status(1, true)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Dispute,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(true));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert!(
+            manager
+                .transaction_history_provider
+                .as_mut()
+                .read_transaction_state(1)
+                .unwrap()
+                .unwrap()
+                .held
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(true))
+        );
+    }
+
+    #[test]
+    fn resolve_does_nothing_if_client_ids_dont_match() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Resolve,
+            client_id: 2,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(false))
+        );
+    }
+
+    #[test]
+    fn resolve_does_nothing_if_already_charged_back() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: false,
+                    charged_back: true,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        customer_account_provider
+            .set_locked_status(1, true)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Resolve,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(true))
+        );
+    }
+
+    #[test]
+    fn resolve_does_nothing_if_not_held() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: false,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Resolve,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(false))
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn resolve_panics_if_not_enough_held_funds() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::ZERO)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        manager
+            .resolve(TransactionRequest {
+                transaction_type: TransactionType::Resolve,
+                client_id: 1,
+                transaction_id: 1,
+                amount: None,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn resolve_works_as_expected() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Resolve,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(true));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(false))
+        );
+    }
+
+    #[test]
+    fn resolve_works_as_expected_even_if_locked() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        customer_account_provider
+            .set_locked_status(1, true)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Resolve,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(true));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(true))
+        );
+    }
+
+    #[test]
+    fn chargeback_does_nothing_if_account_ids_dont_match() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Chargeback,
+            client_id: 2,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(false))
+        );
+    }
+
+    #[test]
+    fn chargeback_does_nothing_if_not_held() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: false,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Chargeback,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(false))
+        );
+    }
+
+    #[test]
+    fn chargeback_does_nothing_if_already_charged_back() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: false,
+                    charged_back: true,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        customer_account_provider
+            .set_locked_status(1, true)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Chargeback,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(false));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::new(10, 0)))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(true))
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn chargeback_panics_if_not_enough_held_funds() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::ZERO)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        manager
+            .handle_transaction(TransactionRequest {
+                transaction_type: TransactionType::Chargeback,
+                client_id: 1,
+                transaction_id: 1,
+                amount: None,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn chargeback_works_as_expected() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Chargeback,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(true));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(true))
+        );
+    }
+
+    #[test]
+    fn chargeback_works_as_expected_even_if_already_locked() {
+        let mut history_provider = InMemoryTransactionHistoryProvider::new();
+        history_provider
+            .write_transaction(TransactionRequest {
+                transaction_type: TransactionType::Deposit,
+                client_id: 1,
+                transaction_id: 1,
+                amount: Some(Decimal::new(10, 0)),
+            })
+            .unwrap();
+        history_provider
+            .write_transaction_state(
+                1,
+                TransactionState {
+                    held: true,
+                    charged_back: false,
+                },
+            )
+            .unwrap();
+        let mut customer_account_provider = InMemoryCustomerAccountProvider::new();
+        customer_account_provider
+            .set_available(1, Decimal::ZERO)
+            .unwrap();
+        customer_account_provider
+            .set_held_amount(1, Decimal::new(10, 0))
+            .unwrap();
+        customer_account_provider
+            .set_locked_status(1, true)
+            .unwrap();
+        let mut manager =
+            DefaultTransactionsManager::new(history_provider, customer_account_provider);
+        let res = manager.handle_transaction(TransactionRequest {
+            transaction_type: TransactionType::Chargeback,
+            client_id: 1,
+            transaction_id: 1,
+            amount: None,
+        });
+        assert_eq!(res, Ok(true));
+        assert_eq!(
+            manager.customer_account_provider.get_available(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_held_amount(1),
+            Ok(Some(Decimal::ZERO))
+        );
+        assert_eq!(
+            manager.customer_account_provider.get_locked_status(1),
+            Ok(Some(true))
+        );
+    }
+
+    // chargeback
+    // Works as expected, even if locked
 }

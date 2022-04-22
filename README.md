@@ -19,7 +19,7 @@ Explanation:
 
 Testing:
 - Manual testing with some test files
-- Unit-test covering most of the logic (because of automock limitations some lines couldn't be covered, but with more time that can be fixed as well)
+- Unit-test covering most of the logic
 
 Concerns:
 - Funds and transactions are stored separately. What this means is that they can get out of sync if some issue happens between their updates.
